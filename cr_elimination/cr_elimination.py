@@ -22,7 +22,9 @@ class Cosmic_Ray_Elimination(object):
             loaded_model.load_weights("model.h5")
             self.model = loaded_model
         except:
+            print('Model not found.  Training model...')
             self.model = create_model()
+            print('Model trained.')
 
     def remove_cosmic_rays(self, image_data, zscore = 2, pixels_shift = 256):
 
