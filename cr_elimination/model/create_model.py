@@ -1,3 +1,12 @@
+# Author: Terry Cox
+# GitHub: https://github.com/Terry071896/Cosmic_Ray_Elimination
+# Email: tcox@keck.hawaii.edu, tfcox1703@gmail.com
+
+__author__ = ['Terry Cox']
+__version__ = '1.0.1'
+__email__ = ['tcox@keck.hawaii.edu', 'tfcox1703@gmail.com']
+__github__ = 'https://github.com/Terry071896/Cosmic_Ray_Elimination'
+
 from keras.models import Sequential
 from keras.layers import Dense
 from keras.wrappers.scikit_learn import KerasRegressor
@@ -10,6 +19,42 @@ import sys
 import io
 
 def custom_loss_function(y_actual, y_predicted):
+    '''
+    Custom loss function for training the CNN.
+
+    Parameters
+    ----------
+    y_actual : list
+        the actual values (y)
+    y_predicted : list
+        the predicted values (yhat)
+
+    Returns
+    -------
+    float
+        the loss/error of the 2 lists.
+
+    Notes
+    -----
+    The metric is ment to help reduce False Negatives.  To do so, the MSE is scaled by:
+    1 + False Negative / All Negative.
+
+    Table of importance:
+
+    y_actual | y_predicted
+    ---------|-------------
+        0    |      0      ----> Good (Most Common)
+        0    |      1      ----> Not often bad and easy to fix (Very Uncommon)
+        1    |      0      ----> Must Limit (Common- around 40-50% of y_actual = 1)
+        1    |      1      ----> Very Good (Common- around 50-60% of y_actual = 1)
+
+    Reducing the False Negatives are more important than reducing the False Positives because the model tends to remove more of features (removing parts of good and all of bad).
+    With that being said, it is much less time consuming to fix a False Positive.
+    Because the model is built to remove pixel values (remove cosmic rays), it does not happen often for the model to "turn on" a pixel that was "off" before and when it does it is very rare that it is a cosmic ray.
+
+    This allows us to make extra efforts to reduce False Negatives knowing that False Positives are hardly a problem.
+    '''
+
     n11 = K.sum(K.round(y_actual) * K.round(y_predicted))
     nboth = K.sum(K.round(y_actual))
     n10 = nboth - n11
@@ -19,6 +64,14 @@ def custom_loss_function(y_actual, y_predicted):
     return custom_loss_value
 
 def create_model():
+    '''
+    Builds, trains, and stores the CNN model.
+
+    Returns
+    -------
+    Keras Model
+        the convolutional neural network to remove cosmic rays from a spectrial image.
+    '''
 
     Y = []
     X_full = []
