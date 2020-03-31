@@ -6,6 +6,8 @@ import numpy as np
 from PIL import Image
 from zipfile import ZipFile
 import keras.backend as K
+import sys
+import io
 
 def custom_loss_function(y_actual, y_predicted):
     n11 = K.sum(K.round(y_actual) * K.round(y_predicted))
@@ -23,24 +25,53 @@ def create_model():
     sixteenth = np.round(np.array(range(0,4))*64)
 
     filename = 'Original.zip'
-    with ZipFile(filename) as archive:
-        for entry in archive.infolist():
-            with archive.open(entry) as file:
-                img = Image.open(file).convert('L')
-                data_x = np.floor(np.array(img.getdata())/255).reshape(256,256)
-                for j in sixteenth:
-                    for k in sixteenth:
-                        X_full.append(data_x[j:(j+64), k:(k+64)])
 
-    filename = 'Solutions.zip'
-    with ZipFile(filename) as archive:
-        for entry in archive.infolist():
-            with archive.open(entry) as file:
-                img = Image.open(file).convert('L')
-                data_y = np.floor(np.array(img.getdata())/255).reshape(256,256)
-                for j in sixteenth:
-                    for k in sixteenth:
-                        Y.append(data_y[j:(j+64), k:(k+64)].reshape(1,-1)[0])
+
+    archive0 = ZipFile('model/Original.zip', 'r')
+    archive1 = ZipFile('model/Solutions.zip', 'r')
+
+    for i in range(0,780):
+        fileX = 'Original/image_actual_%s.png'%(i)
+        image_data = archive0.read(fileX)
+        fh = io.BytesIO(image_data)
+        img = Image.open(fh).convert('L')
+
+        data_x = np.floor(np.array(img.getdata())/255).reshape(256,256)
+
+        fileY = 'Solutions/image_actual_%s.jpg'%(i)
+        image_data = archive1.read(fileY)
+        fh = io.BytesIO(image_data)
+        img = Image.open(fh).convert('L')
+
+        data_y = np.floor(np.array(img.getdata())/255).reshape(256,256)
+
+
+        for j in sixteenth:
+            for k in sixteenth:
+                x = data_x[j:(j+64), k:(k+64)].reshape(1,-1)[0]
+                y = data_y[j:(j+64), k:(k+64)].reshape(1,-1)[0]
+                X_full.append(data_x[j:(j+64), k:(k+64)])
+                Y.append(y)
+    # print(sys.argv)
+    # filename = sys.argv[1]
+    # with ZipFile(filename) as archive:
+    #     for entry in archive.infolist():
+    #         with archive.open(entry) as file:
+    #             img = Image.open(file).convert('L')
+    #             data_x = np.floor(np.array(img.getdata())/255).reshape(256,256)
+    #             for j in sixteenth:
+    #                 for k in sixteenth:
+    #                     X_full.append(data_x[j:(j+64), k:(k+64)])
+    #
+    # filename = 'Solutions.zip'
+    # with ZipFile(filename) as archive:
+    #     for entry in archive.infolist():
+    #         with archive.open(entry) as file:
+    #             img = Image.open(file).convert('L')
+    #             data_y = np.floor(np.array(img.getdata())/255).reshape(256,256)
+    #             for j in sixteenth:
+    #                 for k in sixteenth:
+    #                     Y.append(data_y[j:(j+64), k:(k+64)].reshape(1,-1)[0])
 
     X_full = np.array(X_full).reshape((len(X_full), 64,64,1))
     Y = np.array(Y)
