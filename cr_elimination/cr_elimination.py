@@ -12,14 +12,13 @@ sys.setrecursionlimit(10**8)
 
 class Cosmic_Ray_Elimination(object):
     def __init__(self):
-
         try:
-            json_file = open('model.json', 'r')
+            json_file = open('model/model.json', 'r')
             loaded_model_json = json_file.read()
             json_file.close()
             loaded_model = model_from_json(loaded_model_json)
             # load weights into new model
-            loaded_model.load_weights("model.h5")
+            loaded_model.load_weights("model/model.h5")
             self.model = loaded_model
         except:
             print('Model not found.  Training model...')
@@ -133,10 +132,21 @@ class Cosmic_Ray_Elimination(object):
         remove_binary = scale_binary - keepers_binary
         new_image_data = scale  - scale*remove_binary
 
+        self.new_image_data = new_image_data
+        self.remove_binary = remove_binary
+        self.scale = scale
         return new_image_data
 
 
     def fill_space(self, point, keepers_binary, scale_binary):
+        try:
+            if keepers_binary.shape != scale_binary.shape:
+                print('keepers_binary and scale_binary not the same size')
+                return None
+        except:
+            print('keepers_binary and scale_binary need to be same size 2D numpy arrays.')
+            return None
+
         for i in [point[0]-1,point[0],point[0]+1]:
             for j in [point[1]-1,point[1],point[1]+1]:
                 try:
