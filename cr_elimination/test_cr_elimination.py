@@ -31,6 +31,18 @@ def test_fill_space():
     print(np.where(keepers_binary - scale_binary == -1))
     assert np.sum(keepers_binary - scale_binary) == 0
 
+def test_estimate_pixel_value():
+    the_object = Cosmic_Ray_Elimination()
+    remove_binary = np.zeros((64,64))
+    new_image_data = np.zeros((64,64))
+    new_image_data[0:30, 0:30] = new_image_data[0:30, 0:30] + 1
+    answer = new_image_data.copy()
+    remove_binary[3,3] = 1
+    remove_binary[-3,-3] = 1
+    new_image_data = the_object.estimate_pixel_value(new_image_data, remove_binary, box_width=2, box_height=3)
+    print(np.sum(answer - new_image_data))
+    assert np.sum(answer - new_image_data) == 0
+
 def test_remove_cosmic_rays():
     print(cwd)
     filename = 'test_resources/kb200221_00042'
