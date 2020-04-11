@@ -40,10 +40,12 @@ class Cosmic_Ray_Elimination(object):
 
     Methods
     -------
-    remove_cosmic_rays(image_data, zscore = 2, pixels_shift = 256, box_width = 7, box_height = 5, max_dim = 2)
+    remove_cosmic_rays(image_data, zscore = 2, pixels_shift = 256, proximity_box_dims = (5,7), proximity_method = 'median', max_dim=2, estimate_box_dims = (5,7), estimate_method = 'minimum')
         the method that removes the cosmic rays from the spectrial image.
     fill_gaps(point, keepers_binary, scale_binary)
         a recursive function to clean up the values that were removed that shouldn't have been removed and vice versa.
+    estimate_pixel_value(self, new_image_data, remove_binary, box_width, box_height, method = 'median')
+        a method to estimate the value of a pixel based off a box surrounding the pixel.
     '''
 
     def __init__(self, model_name = 'model'):
@@ -63,25 +65,33 @@ class Cosmic_Ray_Elimination(object):
                 json_file = open('model/%s.json'%model_name, 'r') # open model structure
                 loaded_model.load_weights("model/%s.h5"%model_name) # import the weights
 
-    def remove_cosmic_rays(self, image_data, zscore = 2, pixels_shift = 256, box_width=7, box_height=5, max_dim=2):
+    def remove_cosmic_rays(self, image_data, zscore = 2, pixels_shift = 256, proximity_box_dims = (5,7), proximity_method = 'median', max_dim=2, estimate_box_dims = (5,7), estimate_method = 'minimum'):
         '''
         The method that removes the cosmic rays from the spectrial image.
 
         Parameters
         ----------
         image_data : numpy.ndarray (2D)
-            the original or scaled version of the original spectral image needing removal of cosmic rays.
+            The original or scaled version of the original spectral image needing removal of cosmic rays.
         zscore : int/float or 'kmeans', optional (default = 2)
-            the number of standard deviations away from classifying a pixel value as 1 (above) or 0 (below).
-            if 'kmeans', then the optimal zscore will be found using the unsupervised machine learning algorithm k-means.
+            The number of standard deviations away from classifying a pixel value as 1 (above) or 0 (below).
+            If 'kmeans', then the optimal zscore will be found using the unsupervised machine learning algorithm k-means.
         pixels_shift : int, optional (default = 256)
-            the number pixels the 256 x 256 pixel window will slide from left to right.
-        box_width : int, optional (default = 7)
-            the width of the window around a point to be replaced by the median pixel value of the box.
-        box_height : int, optional (default = 5)
-            the height of the window around a point to be replaced by the median pixel value of the box.
+            The number pixels the 256 x 256 pixel window will slide from left to right.
+        proximity_box_dims : tuple/list, optional (default = (5,7))
+            The window around a point to be replaced by the median (unless otherwise specified by proximity_method) pixel value of the box.
+            The purpose of this box is to find and replace errors and gaps in the predicted image.
+        proximity_method : str, optional (default = 'median')
+            The method used to find the pixel value of the point that is to be replaced in the proximity box described in proximity_box_dims.
+            Options: 'median', 'minimum', 'mean', 'maximum', or 'subtraction'
         max_dim : int or None, optional (default = 2)
-            the maximum dimentions allowed for touching removed pixels that existed before to be kept instead.
+            The maximum dimentions allowed for touching removed pixels that existed before to be kept instead.
+        estimate_box_dims : tuple/list, optional (default = (5,7))
+            The window around a point to be replaced by the minimum (unless otherwise specified by estimate_method) pixel value of the box.
+            The purpose of this box is to estimate the pixel value based off of its relative location.
+        estimate_method : str, optional (default = 'minimum')
+            The method used to estimate the pixel value of the point that is to be replaced in the proximity box described in estimate_box_dims.
+            Options: 'median', 'minimum', 'mean', 'maximum', or 'subtraction'
 
         Returns
         -------
@@ -90,7 +100,7 @@ class Cosmic_Ray_Elimination(object):
 
         Notes
         -----
-        The optional parameters, zscore, pixels_shift, box_width, box_height, and max_dim, are ment to allow for flexiblility of a given to remove more or less pixel values.
+        The optional parameters, zscore, pixels_shift, proximity_box_dims, proximity_method, max_dim, estimate_box_dims, and estimate_method, are ment to allow for flexiblility of a given to remove more or less pixel values.
 
         The closer zscore is to 0, the more pixels looked at for removial and naturally, the further from zero the less pixels (minumally the max pixels will be reviewed).
         The speed of the process will take longer the more pixels are reviewed (maybe a second or 2).  It is recommended that the zscore is intended to find the outliers as cosmic rays tend to be.
@@ -118,10 +128,12 @@ class Cosmic_Ray_Elimination(object):
 
         Most the time this will not help the accuracy of the model, so I recommend keeping the default.
 
-        Parameters box_width and box_height are the dimentions used to create a window around a pixel fixed to be removed.
-        With the point in the middle of the box, the pixel value is to be replaced by the median pixel value in the box.
+        Parameters proximity_box_dims and proximity_method are the dimentions and method used to create a window around a pixel fixed to be removed (method discribed in function "estimate_pixel_value").
+        With the point in the middle of the box, the pixel value is to be replaced by the median (unless otherwise specified by proximity_method) pixel value in the box.
         Not only is the point of this box ment to replace the pixel with a reasonable pixel based off of the proximity pixels, but is very import in saving a pixel on a spectral line that is ment to be removed.
         So it is recommended to have a window that would best represent the shape of the average spectral line, but not large enough to lose the beneifit of the proximity replacing the value.
+        Similarly, estimate_box_dims and estimate_method used for the same method ("estimate_pixel_value").  The idea here is not to save pixels, but rather make sure that the pixels removed are not going to standout
+        at all in the image.  So, a conservitive approach is taken as the default method for this box by making estimate_method = 'minimum' (taking the minimum of the proximity box).
 
         The last parameter max_dim is the maximum dimention for the recursive function "fill_gaps" which cleans up the values that are to be removed that shouldn't be removed and vice versa.
         This value should be low (0-2) if there are many spectral lines and lots of cosmic rays.
@@ -137,7 +149,7 @@ class Cosmic_Ray_Elimination(object):
             image_data = np.array(image_data) # make image data numpy array
             if image_data.ndim != 2: # needs to be 2D
                 print('Needs to be a 2D array.')
-                return None
+                exit()
             elif image_data.dtype != np.dtype('float'): # check to see if not array of floats
                 try:
                     interval = ZScaleInterval() # init zscale object
@@ -146,39 +158,47 @@ class Cosmic_Ray_Elimination(object):
                     image_data = norm.__call__(image_data).data # scale and redefine image_data
                 except:
                     print('Needs to be a 2D array of floats not', image_data.dtype) # if not int or float print error
-                    return None
+                    exit()
             elif np.min(image_data.shape) < 256: # make sure input has a shape greater than 256
                 print('\'image_data\' must have a width and length >= 256: ', image_data.shape)
-                return None
+                exit()
         except:
             print('Needs to be a 2D array.') # if not array print error
-            return None
+            exit()
 
         if not isinstance(zscore, (int, float)): # zscore must be int or float or 'kmeans'
             if zscore != 'kmeans': # because not int or float then check to see if 'kmeans'
                 print('\'zscore\' needs to be type int or float or \'optimal\'.') # print error and return
-                return None
+                exit()
 
         if not isinstance(pixels_shift, int): # pixels_shift must be an int
             print('\'pixels_shift\' needs to be type int.') # print error and return
-            return None
+            exit()
 
         if pixels_shift > 256: # pixels_shift cannot be greater 256
             print('\'pixels_shift\' can be a max of 256.')
             print('pixels_shift = 256')
             pixels_shift = 256 # redefine pixels_shift to be max at 256
 
-        if not isinstance(box_width, int): # box_width must be int
-            print('\'box_width\' must be an int.')
-            return None
+        try:
+            if not isinstance(proximity_box_dims[0], int) or not isinstance(proximity_box_dims[1], int): # proximity_box_dims must be list or tuple of 2 ints
+                print('\'proximity_box_dims\' must be list or tuple of 2 ints.')
+                exit()
+        except:
+            print('\'proximity_box_dims\' must be list or tuple of 2 ints.')
+            exit()
 
-        if not isinstance(box_height, int): # box_height must be int
-            print('\'box_height\' must be an int')
-            return None
+        try:
+            if not isinstance(estimate_box_dims[0], int) or not isinstance(estimate_box_dims[1], int): # estimate_box_dims must be list or tuple of 2 ints
+                print('\'estimate_box_dims\' must be list or tuple of 2 ints.')
+                exit()
+        except:
+            print('\'estimate_box_dims\' must be list or tuple of 2 ints.')
+            exit()
 
         if not max_dim is None and not isinstance(max_dim, int): # max_dim must be None or int
             print('\'max_dim\' must be either int or None.')
-            return None
+            exit()
 
         times = [] # init times as list
         total_time = 0 # init total_time
@@ -215,7 +235,6 @@ class Cosmic_Ray_Elimination(object):
         times.append('Import and Scale: %s'%elapsed) # add time to times list
         start_time = timeit.default_timer() # start timer
         ############################### Build X ############################################
-
         x1 = np.array(range(0,int(np.ceil(scale.shape[0]/pixels_shift))))*pixels_shift # make list of top pixels for each window
         x2 = np.array(range(0,int(np.ceil(scale.shape[1]/pixels_shift))))*pixels_shift # make list of far left pixels for each window
         sixteenth = np.round(np.array(range(0,4))*64) # make list of top left corner to break 256 pix image to 16 different 64 pix images
@@ -272,7 +291,7 @@ class Cosmic_Ray_Elimination(object):
         total_time += elapsed # add time to total_time
         times.append('Predictions: %s'%elapsed) # add time to timers
         start_time = timeit.default_timer() # start time
-        ############################### Fill In Gaps ############################################
+        ############################### Fill In Gaps and Save Pixels ############################################
         if max_dim is None or max_dim > 0: # Check if fill in gaps section is needed (if max_dim is 0 no need for this method)
             points = list(zip(*np.where(keepers_binary == 1))) # create list of tuples of points where keepers_binary values are 1
 
@@ -281,83 +300,31 @@ class Cosmic_Ray_Elimination(object):
 
 
         remove_binary = scale_binary - keepers_binary # make matrix of items that need to be removed (if 1 then set to be removed)
+        new_image_data = scale.copy() # make copy of scale as new_image_data
+        box_width = proximity_box_dims[1] # create box_width as the width of the proximity to point box to possible saving of point
+        box_height = proximity_box_dims[0] # create box_height as the height of the proximity to point box to possible saving of point
 
-        if box_width > 1 or box_height > 1: # make sure that there is a box bigger than 1x1
-            new_image_data = scale.copy() # make copy of scale as new_image_data
-            points = list(zip(*np.where(remove_binary == 1))) # create list of tuples of points where remove_binary values are 1
-            imin_shift = int(np.floor(box_height/2)) # how far down box should be around pixel
-            imax_shift = int(np.ceil(box_height/2)) # how far up box should be around pixel
-            jmin_shift = int(np.floor(box_width/2)) # how far left box should be around pixel
-            jmax_shift = int(np.ceil(box_width/2)) # how far right box should be around pixel
-            for point in points: # go over each point to be removed
-                imin = point[0]-imin_shift # find bottom of box
-                imax = point[0]+imax_shift # find top of box
-                jmin = point[1]-jmin_shift # find left edge of box
-                jmax = point[1]+jmax_shift # find right edge of box
-                if imin < 0: # check to see if out of bounds top
-                    imin = 0 # set to top of image
-                if jmin < 0: # check to see if out of bounds left
-                    jmin = 0 # set to left edge of image
-                try:
-                    values = list(new_image_data[imin:imax, jmin:jmax].shape(1,-1)[0]) # take pixels box around point from new_image_data nd store as values and shape to 1D list
-                except: # if that fails then box is out of bounds by bottom or right edges
-                    values = [] # init values as list
-                    for i in range(imin, imax): # loop top to bottom of box
-                        for j in range(jmin, jmax): # loop left to right of box
-                            try:
-                                values.append(new_image_data[i,j]) # if in bounds new_image_data pixel at that point to values
-                            except:
-                                #print('(%s, %s) is out of bounds'%(i,j))
-                                continue # if failed then continue
+        if box_width > 0 and box_height > 0 and box_width+box_height > 2: # make sure that there is a box bigger than 1x1
+            new_image_data = self.estimate_pixel_value(new_image_data, remove_binary, box_width, box_height, method=proximity_method) # possibly save pixels of proximity box (default by median)
 
-                sorted = np.sort(values) # sort values
-                index = int(np.floor(len(sorted)/2)+1) # find index of middle (odd) to one above middle (even)
-                med = sorted[index] # store median
-                new_image_data[point] = med # replace pixel value at point with med
+            diff = scale - new_image_data # find the difference between the original scaled image and the new image
+            points = list(zip(*np.where(diff < 0))) # list of points where the new image "turned on" a point that should NOT be turned on (not turned on in original)
+            for point in points: # loop through points
+                new_image_data[point] = scale[point] # replace mistake pixel with original pixel value
 
         elapsed = timeit.default_timer() - start_time # stop time
         total_time += elapsed # add time to total_time
         times.append('Fill the gaps: %s'%elapsed) # add time to timers
         start_time = timeit.default_timer() # start time
         ############################### Remove and Finish ############################################
+        box_width = estimate_box_dims[1] # redefine box_width as the width of the proximity to point box to remove rather than save a point
+        box_height = estimate_box_dims[0] # redefine box_height as the height of the proximity to point box to remove rather than save a point
 
-        if box_width > 1 or box_height > 1: # make sure that there is a box gigger than 1x1
-            diff = scale - new_image_data # find the difference between the original scaled image and the new image
-            points = list(zip(*np.where(diff < 0))) # list of points where the new image "turned on" a point that should NOT be turned on (not turned on in original)
-            for point in points: # loop through points
-                new_image_data[point] = scale[point] # replace mistake pixel with original pixel value
-
+        if box_width > 0 and box_height > 0 and box_width+box_height > 2: # make sure that there is a box bigger than 1x1
             remove_binary = np.round(scale - new_image_data) # make matrix of items that need to be removed (if 1 then set to be removed and if 0 then kept)
-
-            points = list(zip(*np.where(remove_binary == 1))) # create list of tuples of points where remove_binary values are 1
-            imin_shift = int(np.floor(box_height/2)) # how far down box should be around pixel
-            imax_shift = int(np.ceil(box_height/2)) # how far up box should be around pixel
-            jmin_shift = int(np.floor(box_width/2)) # how far left box should be around pixel
-            jmax_shift = int(np.ceil(box_width/2)) # how far right box should be around pixel
-            for point in points: # go over each point to be removed
-                imin = point[0]-imin_shift # find bottom of box
-                imax = point[0]+imax_shift # find top of box
-                jmin = point[1]-jmin_shift # find left edge of box
-                jmax = point[1]+jmax_shift # find right edge of box
-                if imin < 0: # check to see if out of bounds top
-                    imin = 0 # set to top of image
-                if jmin < 0: # check to see if out of bounds left
-                    jmin = 0 # set to left edge of image
-                try:
-                    values = list(new_image_data[imin:imax, jmin:jmax].shape(1,-1)[0]) # take pixels box around point from new_image_data nd store as values and shape to 1D list
-                except: # if that fails then box is out of bounds by bottom or right edges
-                    values = [] # init values as list
-                    for i in range(imin, imax): # loop top to bottom of box
-                        for j in range(jmin, jmax): # loop left to right of box
-                            try:
-                                values.append(new_image_data[i,j]) # if in bounds new_image_data pixel at that point to values
-                            except:
-                                #print('(%s, %s) is out of bounds'%(i,j))
-                                continue # if failed then continue
-
-                new_image_data[point] = np.min(values) # replace pixel value at point with the minimum pixel value in list values
+            new_image_data = self.estimate_pixel_value(new_image_data, remove_binary, box_width, box_height, method=estimate_method) # estimate the value of pixel by proximity box (default by minimum)
         else:
-            new_image_data = scale - remove_binary*scale # if the pixel box is 1x1 or does not make sense, then pixels to be removed will now be 0 in the new image
+            new_image_data = new_image_data - remove_binary*new_image_data # if the pixel box is 1x1 or does not make sense, then pixels to be removed will now be 0 in the new image
 
 
         elapsed = timeit.default_timer() - start_time # stop time
@@ -407,10 +374,18 @@ class Cosmic_Ray_Elimination(object):
         try:
             if keepers_binary.shape != scale_binary.shape: # make sure keepers_binary and scale_binary are the same shape
                 print('keepers_binary and scale_binary not the same size') # print error
-                return None
+                exit()
         except:
             print('keepers_binary and scale_binary need to be same size 2D numpy arrays.') # if cannot get a shape from keepers_binary or scale_binary then one or both are not lists.
-            return None
+            exit()
+
+        try:
+            if not isinstance(int(point[0]), int) or not isinstance(int(point[1]), int): # point must be list or tuple of 2 ints
+                print('\'point\' must be list or tuple of 2 ints.')
+                exit()
+        except:
+            print('\'point\' must be list or tuple of 2 ints.')
+            exit()
 
         if max_dim is None: # if max_dim is None, then make sure that not limited by dimentions
             dim = 0 # fix dim at 0 so it will always be less than the max_dim
@@ -430,3 +405,105 @@ class Cosmic_Ray_Elimination(object):
                     continue # if out of bounds, then continue on without changing anything
 
         return keepers_binary # return the new keepers_binary
+
+
+    def estimate_pixel_value(self, new_image_data, remove_binary, box_width = 7, box_height = 5, method = 'median'):
+        '''
+        A method to estimate the value of a pixel based off a box surrounding the pixel.
+
+        Parameters
+        ----------
+        new_image_data : numpy.ndarray (2D)
+            A matrix of the predicted image (image without cosmic rays)
+        remove_binary : numpy.ndarray (2D)
+            A matrix of the predicted pixels that are ment to be removed. (Binary matrix)
+        box_width : int, optional (default = 7)
+            The width of the window that is to be centered around a pixel that is to be estimated by the median of the box (unless specified in the \'method\' parameter)
+        box_height : int, optional (default = 5)
+            The height of the window that is to be centered around a pixel that is to be estimated by the median of the box (unless specified in the \'method\' parameter)
+        method : str, optional (default = \'median\')
+            The method used to estimate the new value of the pixel.
+            Options: \'median\', \'minimum\', \'mean\', \'maximum\', and \'subtraction\'
+
+        Returns
+        -------
+        numpy.ndarray (2D)
+            a NumPy array of the image without the points discribed in removed_binary.
+
+        Notes
+        -----
+        The idea of this algorithm is to go over the removed_binary data and find points that are to be removed.
+        Go over points to be removed-
+            1. Create box with pixel in center (based off of box_width and box_height)
+            2. Find median value of box from new image (or what every method is specified by \'method\')
+            3. Replace pixel at point with the calculated value
+
+        Things to consider are that this method is great with "box-like" spectral lines and bad with "box-like" cosmic rays.
+        Where the more horizontally and vertically oriented, the more likely the algorithm will "save" a given point.
+        '''
+        try:
+            if remove_binary.shape != new_image_data.shape: # make sure remove_binary and new_image_data are the same shape
+                print('remove_binary and new_image_data not the same size') # print error
+                exit()
+        except:
+            print('remove_binary and new_image_data need to be same size 2D numpy arrays.') # if cannot get a shape from remove_binary or new_image_data then one or both are not lists.
+            exit()
+
+        if not isinstance(method, str): # make sure method is a string
+            print('method must be a string: median, min, mean, max, or subtraction')
+            print('Setting method = \'median\'')
+            method = 'median'
+
+        if method == 'subtraction':
+            return new_image_data - remove_binary*new_image_data # return new image with removed pixels = 0
+
+        if not isinstance(box_height, int): # box_height must be int
+            print('\'box_height\' must be an int')
+            exit()
+
+        if not isinstance(box_width, int): # box_height must be int
+            print('\'box_width\' must be an int')
+            exit()
+
+        points = list(zip(*np.where(remove_binary == 1))) # create list of tuples of points where remove_binary values are 1
+        imin_shift = int(np.floor(box_height/2)) # how far down box should be around pixel
+        imax_shift = int(np.ceil(box_height/2)) # how far up box should be around pixel
+        jmin_shift = int(np.floor(box_width/2)) # how far left box should be around pixel
+        jmax_shift = int(np.ceil(box_width/2)) # how far right box should be around pixel
+        for point in points: # go over each point to be removed
+            imin = point[0]-imin_shift # find bottom of box
+            imax = point[0]+imax_shift # find top of box
+            jmin = point[1]-jmin_shift # find left edge of box
+            jmax = point[1]+jmax_shift # find right edge of box
+            if imin < 0: # check to see if out of bounds top
+                imin = 0 # set to top of image
+            if jmin < 0: # check to see if out of bounds left
+                jmin = 0 # set to left edge of image
+            try:
+                values = list(new_image_data[imin:imax, jmin:jmax].shape(1,-1)[0]) # take pixels box around point from new_image_data nd store as values and shape to 1D list
+            except: # if that fails then box is out of bounds by bottom or right edges
+                values = [] # init values as list
+                for i in range(imin, imax): # loop top to bottom of box
+                    for j in range(jmin, jmax): # loop left to right of box
+                        try:
+                            values.append(new_image_data[i,j]) # if in bounds new_image_data pixel at that point to values
+                        except:
+                            #print('(%s, %s) is out of bounds'%(i,j))
+                            continue # if failed then continue
+
+            if method == 'median':
+                sorted = np.sort(values) # sort values
+                index = int(np.floor(len(sorted)/2)+1) # find index of middle (odd) to one above middle (even)
+                med = sorted[index] # store median
+                new_image_data[point] = med # replace pixel value at point with med
+            elif method == 'min' or method == 'minimum':
+                new_image_data[point] = np.min(values) # replace pixel value at point with the minimum pixel value in list values
+            elif method == 'mean' or method == 'average':
+                new_image_data[point] = np.mean(values) # replace pixel value at point with the mean pixel value of list values
+            elif method == 'max' or method == 'maximum':
+                new_image_data[point] = np.max(values) # replace pixel value at point with the maximum pixel value in list values
+            else:
+                print('Parameter \'method\' must be: median, min, mean, max, or subtraction.') # method is not a method that works
+                return new_image_data
+
+        return new_image_data # return new image
