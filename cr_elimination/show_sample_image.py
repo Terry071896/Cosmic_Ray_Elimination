@@ -32,9 +32,11 @@ for i, file in enumerate(files):
         #i = 1
         zscores = [2, 0.5]
         max_dims = [None, 0]
-        box_widths = [5, 7]
-        box_heights = [5, 5]
-        new_image_data = cr.remove_cosmic_rays(scale, zscore=zscores[i], pixels_shift=256, max_dim=max_dims[i], box_width=box_widths[i], box_height=box_heights[i])
+        proximity_box_dims = [[5,5],[5, 7]]
+        estimate_box_dims = [[5, 5],[3,5]]
+        estimate_method  = 'minimum'
+        proximity_method = 'median'
+        new_image_data = cr.remove_cosmic_rays(scale, zscore=zscores[i], pixels_shift=256, max_dim=max_dims[i], proximity_box_dims=proximity_box_dims[i], estimate_box_dims=estimate_box_dims[i], estimate_method = estimate_method, proximity_method = proximity_method)
 
         #new_image_save = cr.remove_cosmic_rays(scale)
         #np.save('test_resources/%s_%s_medmin'%(model_name, file), new_image_data)
@@ -62,45 +64,46 @@ for i, file in enumerate(files):
         CRR_SEPMED = False
         CRR_CLEANTYPE = "meanmask"
         CRR_NITER = 4
-        CRR_SIGCLIP = 0.00001
+        #CRR_SIGCLIP = 0.00001
         read_noise = 3
         start_time = timeit.default_timer()
-        #lacos = _lacosmicx.lacosmicx(image_data.astype(np.float32), sigclip = .1)
-        # mask, la_scale = _lacosmicx.lacosmicx(
-        #     scale.astype(np.float32), gain=1.0, readnoise=CRR_READNOISE,
-        #     psffwhm=CRR_PSFFWHM,
-        #     sigclip=CRR_SIGCLIP,
-        #     sigfrac=CRR_SIGFRAC,
-        #     objlim=CRR_OBJLIM,
-        #     fsmode=CRR_FSMODE,
-        #     psfmodel=CRR_PSFMODEL,
-        #     verbose=CRR_VERBOSE,
-        #     sepmed=CRR_SEPMED,
-        #     cleantype=CRR_CLEANTYPE)
-        # elapsed = timeit.default_timer() - start_time
-        # print('LA Cosmic: %s'%elapsed)
-        #
-        # la_subtract = scale - la_scale
-        # interval = ZScaleInterval()
-        # vmin,vmax = interval.get_limits(la_scale)
-        # norm = ImageNormalize(vmin=vmin,vmax=vmax,stretch=SinhStretch())
-        # la_scale = norm.__call__(la_scale)
+        lacos = _lacosmicx.lacosmicx(image_data.astype(np.float32), sigclip = .1)
+        mask, la_scale = _lacosmicx.lacosmicx(
+            scale.astype(np.float32), gain=1.0, readnoise=CRR_READNOISE,
+            psffwhm=CRR_PSFFWHM,
+            sigclip=CRR_SIGCLIP,
+            sigfrac=CRR_SIGFRAC,
+            objlim=CRR_OBJLIM,
+            fsmode=CRR_FSMODE,
+            psfmodel=CRR_PSFMODEL,
+            verbose=CRR_VERBOSE,
+            sepmed=CRR_SEPMED,
+            cleantype=CRR_CLEANTYPE)
+        elapsed = timeit.default_timer() - start_time
+        print('LA Cosmic: %s'%elapsed)
 
-        cr = Cosmic_Ray_Elimination(model_name = model_name)
-        #i = 1
-        zscores = [2, 0.5]
-        max_dims = [0, 0]
-        box_widths = [1, 1]
-        box_heights = [1, 1]
-        la_scale = cr.remove_cosmic_rays(scale, zscore=zscores[i], pixels_shift=256, max_dim=max_dims[i], box_width=box_widths[i], box_height=box_heights[i])
         la_subtract = scale - la_scale
         interval = ZScaleInterval()
         vmin,vmax = interval.get_limits(la_scale)
         norm = ImageNormalize(vmin=vmin,vmax=vmax,stretch=SinhStretch())
         la_scale = norm.__call__(la_scale)
 
+        # cr = Cosmic_Ray_Elimination(model_name = model_name)
+        # #i = 1
+        # zscores = [2, 0.5]
+        # max_dims = [0, 0]
+        # box_widths = [1, 1]
+        # box_heights = [1, 1]
+        # la_scale = cr.remove_cosmic_rays(scale, zscore=zscores[i], pixels_shift=256, max_dim=max_dims[i], box_width=box_widths[i], box_height=box_heights[i])
+        # la_subtract = scale - la_scale
+        # interval = ZScaleInterval()
+        # vmin,vmax = interval.get_limits(la_scale)
+        # norm = ImageNormalize(vmin=vmin,vmax=vmax,stretch=SinhStretch())
+        # la_scale = norm.__call__(la_scale)
+        # print(cr.times)
         matplotlib.rcParams['figure.figsize'] = (int(new_image_data.shape[0]*0.01), int(new_image_data.shape[1]*0.01))
-        i = 1
+        i = 0
+        last_title = 'LA Cosmic'
         if i == 0:
             plt.imshow(scale, cmap='gray')
             plt.show()
@@ -114,7 +117,7 @@ for i, file in enumerate(files):
             ax2.set_title('CNN Method')
             ax3 = fig.add_subplot(1,2,2)
             ax3.imshow(la_scale, cmap='gray')
-            ax3.set_title('Without \'Filling the Gaps\'')
+            ax3.set_title(last_title)
             plt.show()
 
             fig = plt.figure()
@@ -123,8 +126,36 @@ for i, file in enumerate(files):
             ax2.set_title('CNN Method')
             ax3 = fig.add_subplot(1,2,2)
             ax3.imshow(la_subtract, cmap='gray')
-            ax3.set_title('Without \'Filling the Gaps\'')
+            ax3.set_title(last_title)
             plt.show()
+
+
+            fig = plt.figure()
+            ax2 = fig.add_subplot(3,1,1)
+            ax2.imshow(new_scale[0:250, 0:-1], cmap='gray')
+            ax2.set_title('CNN Method')
+            ax3 = fig.add_subplot(3,1,2)
+            ax3.imshow(la_scale[0:250, 0:-1], cmap='gray')
+            ax3.set_title(last_title)
+            ax4 = fig.add_subplot(3,1,3)
+            ax4.imshow(la_scale[0:250, 0:-1] - new_scale[0:250, 0:-1], cmap='gray')
+            ax4.set_title('%s - CNN Method'%last_title)
+            plt.show()
+
+            try:
+                fig = plt.figure()
+                ax2 = fig.add_subplot(3,1,1)
+                ax2.imshow(new_scale[2250:2750, 0:-1], cmap='gray')
+                ax2.set_title('CNN Method')
+                ax3 = fig.add_subplot(3,1,2)
+                ax3.imshow(la_scale[2250:2750, 0:-1], cmap='gray')
+                ax3.set_title(last_title)
+                ax4 = fig.add_subplot(3,1,3)
+                ax4.imshow(la_scale[2250:2750, 0:-1] - new_scale[2250:2750, 0:-1], cmap='gray')
+                ax4.set_title('%s - CNN Method'%last_title)
+                plt.show()
+            except:
+                continue
         else:
             fig = plt.figure()
             ax1 = fig.add_subplot(1,3,1)
@@ -135,7 +166,7 @@ for i, file in enumerate(files):
             ax2.set_title('CNN Method')
             ax3 = fig.add_subplot(1,3,3)
             ax3.imshow(la_scale, cmap='gray')
-            ax3.set_title('Without \'Filling the Gaps\'')
+            ax3.set_title(last_title)
             plt.show()
 
             fig = plt.figure()
@@ -147,5 +178,5 @@ for i, file in enumerate(files):
             ax2.set_title('CNN Method')
             ax3 = fig.add_subplot(1,3,3)
             ax3.imshow(la_subtract, cmap='gray')
-            ax3.set_title('Without \'Filling the Gaps\'')
+            ax3.set_title(last_title)
             plt.show()
